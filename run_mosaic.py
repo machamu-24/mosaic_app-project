@@ -2,6 +2,11 @@
 import argparse
 import os
 import sys
+
+# Apple Silicon (MPS) において未対応の演算（nms等）が発生した場合に自動的にCPUにフォールバックさせるための環境変数を設定。
+# これを設定しないとNotImplementedErrorでクラッシュする可能性があります。
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 from typing import List, Tuple
 
 import cv2
@@ -106,6 +111,9 @@ def process_video(
     device: str,
 ) -> None:
     from ultralytics import YOLO
+    from moviepy.editor import VideoFileClip, AudioFileClip
+    import tempfile
+    import shutil
 
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
@@ -115,9 +123,16 @@ def process_video(
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        
+    # Create a temporary file for the video without audio
+    fd, temp_video_path = tempfile.mkstemp(suffix=".mp4")
+    os.close(fd)
+
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    writer = cv2.VideoWriter(temp_video_path, fourcc, fps, (width, height))
 
     weights_path = ensure_yolo_face_weights(yolo_weights)
     yolo_model = YOLO(weights_path)
@@ -154,6 +169,83 @@ def process_video(
     cap.release()
     writer.release()
 
+    # Audio merging with moviepy
+    print("Merging audio...", flush=True)
+    try:
+        original_clip = VideoFileClip(input_path)
+        if original_clip.audio is not None:
+            processed_clip = VideoFileClip(temp_video_path)
+            # Set the audio of the processed video to the original audio
+            final_clip = processed_clip.set_audio(original_clip.audio)
+            final_clip.write_videofile(
+                output_path,
+                codec="libx264",
+                audio_codec="aac",
+                logger=None, # Disable moviepy's verbose bar
+                preset="fast"
+            )
+            processed_clip.close()
+            final_clip.close()
+        else:
+            # If no audio, just move the temp file to the output path
+            shutil.move(temp_video_path, output_path)
+        original_clip.close()
+    except Exception as e:
+        print(f"Error during audio merge: {e}")
+        print("Saving video without audio as fallback.")
+        shutil.move(temp_video_path, output_path)
+    finally:
+        # Ensure temp file is cleaned up
+        if os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except OSError:
+                pass
+
+
+
+def process_image(
+    input_path: str,
+    output_path: str,
+    mosaic_block: int,
+    yolo_weights: str,
+    yolo_imgsz: int,
+    yolo_conf: float,
+    yolo_iou: float,
+    device: str,
+) -> None:
+    from ultralytics import YOLO
+
+    frame = cv2.imread(input_path)
+    if frame is None:
+        raise RuntimeError(f"Failed to read image: {input_path}")
+
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    weights_path = ensure_yolo_face_weights(yolo_weights)
+    yolo_model = YOLO(weights_path)
+
+    bboxes: List[Tuple[int, int, int, int]] = []
+
+    results = yolo_model.predict(
+        frame,
+        imgsz=yolo_imgsz,
+        conf=yolo_conf,
+        iou=yolo_iou,
+        device=device,
+        verbose=False,
+    )
+    for box in results[0].boxes.xyxy.cpu().numpy():
+        x1, y1, x2, y2 = box.astype(int)
+        bboxes.append((x1, y1, x2, y2))
+
+    for bbox in bboxes:
+        mosaic_region(frame, bbox, block_size=mosaic_block)
+
+    cv2.imwrite(output_path, frame)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="YOLOv8 face mosaic processor (YOLOv8m + imgsz=960).")
@@ -169,21 +261,36 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
-        print(f"Input video not found: {args.input}")
+        print(f"Input file not found: {args.input}")
         sys.exit(1)
 
     device = pick_device(args.device)
     print(f"Using device: {device}")
 
-    process_video(
-        args.input,
-        args.output,
-        mosaic_block=args.mosaic,
-        yolo_weights=args.yolo_weights,
-        yolo_imgsz=args.yolo_imgsz,
-        yolo_conf=args.yolo_conf,
-        yolo_iou=args.yolo_iou,
-        device=device,
-    )
+    ext = os.path.splitext(args.input.lower())[1]
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
+
+    if ext in image_exts:
+        process_image(
+            args.input,
+            args.output,
+            mosaic_block=args.mosaic,
+            yolo_weights=args.yolo_weights,
+            yolo_imgsz=args.yolo_imgsz,
+            yolo_conf=args.yolo_conf,
+            yolo_iou=args.yolo_iou,
+            device=device,
+        )
+    else:
+        process_video(
+            args.input,
+            args.output,
+            mosaic_block=args.mosaic,
+            yolo_weights=args.yolo_weights,
+            yolo_imgsz=args.yolo_imgsz,
+            yolo_conf=args.yolo_conf,
+            yolo_iou=args.yolo_iou,
+            device=device,
+        )
 
     print("Done.")
