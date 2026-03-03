@@ -109,6 +109,7 @@ def process_video(
     yolo_conf: float,
     yolo_iou: float,
     device: str,
+    progress_callback=None,
 ) -> None:
     from ultralytics import YOLO
     from moviepy.editor import VideoFileClip, AudioFileClip
@@ -122,6 +123,9 @@ def process_video(
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames <= 0:
+        total_frames = 1  # Fallback to prevent division by zero
 
     output_dir = os.path.dirname(output_path)
     if output_dir:
@@ -162,6 +166,10 @@ def process_video(
             mosaic_region(frame, bbox, block_size=mosaic_block)
 
         writer.write(frame)
+
+        if progress_callback is not None:
+            # frame is BGR Numpy array, progress_callback expects it
+            progress_callback(frame_count, total_frames, frame)
 
         if frame_count % 60 == 0:
             print(f"Processed {frame_count} frames...", flush=True)
@@ -213,6 +221,7 @@ def process_image(
     yolo_conf: float,
     yolo_iou: float,
     device: str,
+    progress_callback=None,
 ) -> None:
     from ultralytics import YOLO
 
@@ -243,6 +252,9 @@ def process_image(
 
     for bbox in bboxes:
         mosaic_region(frame, bbox, block_size=mosaic_block)
+
+    if progress_callback is not None:
+        progress_callback(1, 1, frame)
 
     cv2.imwrite(output_path, frame)
 

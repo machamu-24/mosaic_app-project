@@ -21,7 +21,7 @@ def main():
 
     # Sidebar settings
     st.sidebar.header("Settings")
-    mosaic_block = st.sidebar.slider("Mosaic Strength (Block Size)", min_value=5, max_value=100, value=20, help="Larger means stronger mosaic.")
+    mosaic_block = st.sidebar.slider("Mosaic Strength", min_value=5, max_value=100, value=20, help="Larger means stronger mosaic.")
     
     # Advanced settings hidden by default since it's for non-engineers usually, but good for demo
     with st.sidebar.expander("Advanced Settings"):
@@ -61,47 +61,59 @@ def process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, y
     os.close(fd)
 
     try:
-        with st.spinner('Processing... Please wait (this may take a while for long videos).'):
-            # In Streamlit Cloud, stdout redirection is complex, so we just use a spinner for simplicity
-            # For a more robust cloud app, we'd need a background task queue (e.g. Celery), but this is fine for a demo
-            if is_image:
-                process_image(
-                    input_path, output_path, mosaic_block,
-                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device
-                )
-                st.success("Image processing complete!")
-                st.image(output_path, caption="Masked Image", use_container_width=True)
-                
-                with open(output_path, "rb") as file:
-                    st.download_button(
-                        label="Download Masked Image",
-                        data=file,
-                        file_name=f"masked_{uploaded_file.name}",
-                        mime=f"image/{file_ext[1:]}"
-                    )
+        st.write("Processing... Please wait (this may take a while for long videos).")
+        progress_bar = st.progress(0, text="Initializing processing...")
 
-            else:
-                process_video(
-                    input_path, output_path, mosaic_block,
-                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device
+        def update_progress(curr, total, frame):
+            # Streamlit progress bar accepts values 0-100 (or float 0.0-1.0)
+            if total > 0:
+                percent_float = min(1.0, max(0.0, curr / total))
+                percent_int = int(percent_float * 100)
+                text_msg = f"Processing... {curr}/{total} frames ({percent_int}%)"
+                progress_bar.progress(percent_float, text=text_msg)
+
+        if is_image:
+            process_image(
+                input_path, output_path, mosaic_block,
+                yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device,
+                progress_callback=update_progress
+            )
+            progress_bar.empty() # Remove progress bar when done
+            st.success("Image processing complete!")
+            st.image(output_path, caption="Masked Image", use_container_width=True)
+            
+            with open(output_path, "rb") as file:
+                st.download_button(
+                    label="Download Masked Image",
+                    data=file,
+                    file_name=f"masked_{uploaded_file.name}",
+                    mime=f"image/{file_ext[1:]}"
                 )
-                st.success("Video processing complete!")
-                
-                # Attempt to show video in browser
-                try:
-                    with open(output_path, 'rb') as video_file:
-                        video_bytes = video_file.read()
-                    st.video(video_bytes)
-                except Exception as e:
-                    st.warning("Could not preview video in browser. Please download it.")
-                
-                with open(output_path, "rb") as file:
-                    st.download_button(
-                        label="Download Masked Video",
-                        data=file,
-                        file_name=f"masked_{os.path.splitext(uploaded_file.name)[0]}.mp4",
-                        mime="video/mp4"
-                    )
+
+        else:
+            process_video(
+                input_path, output_path, mosaic_block,
+                yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device,
+                progress_callback=update_progress
+            )
+            progress_bar.empty() # Remove progress bar when done
+            st.success("Video processing complete!")
+            
+            # Attempt to show video in browser
+            try:
+                with open(output_path, 'rb') as video_file:
+                    video_bytes = video_file.read()
+                st.video(video_bytes)
+            except Exception as e:
+                st.warning("Could not preview video in browser. Please download it.")
+            
+            with open(output_path, "rb") as file:
+                st.download_button(
+                    label="Download Masked Video",
+                    data=file,
+                    file_name=f"masked_{os.path.splitext(uploaded_file.name)[0]}.mp4",
+                    mime="video/mp4"
+                )
     except Exception as e:
         st.error(f"An error occurred during processing: {e}")
     finally:

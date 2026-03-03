@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox, ttk
 import threading
 import os
 import sys
+import cv2
 
 # Add the current directory to sys.path so we can import run_mosaic
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -17,7 +18,7 @@ class MosaicAppGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Mosaic App")
-        self.root.geometry("500x300")
+        self.root.geometry("500x320")
         self.root.resizable(False, False)
 
         # Variables
@@ -25,6 +26,10 @@ class MosaicAppGUI:
         self.output_path_var = tk.StringVar()
         self.mosaic_block_var = tk.IntVar(value=20)
         self.status_var = tk.StringVar(value="Ready.")
+
+        # Tracking variables for UI updates
+        self.latest_progress = None
+        self.is_processing = False
 
         self.create_widgets()
 
@@ -55,17 +60,23 @@ class MosaicAppGUI:
         tk.Spinbox(settings_frame, from_=5, to=100, textvariable=self.mosaic_block_var, width=5).pack(side=tk.LEFT, padx=5)
 
         # Run Button
-        run_frame = tk.Frame(self.root, pady=20)
+        run_frame = tk.Frame(self.root, pady=10)
         run_frame.pack(fill=tk.X, padx=20)
-        self.run_button = tk.Button(run_frame, text="Run Processing", command=self.start_processing, bg="green", fg="white", font=("Helvetica", 12, "bold"))
-        self.run_button.pack(fill=tk.X)
+        
+        # In macOS Tkinter, setting a colored button background is hard without `tkmacosx`.
+        # Using a clean ttk style with a large explicit text instead.
+        style = ttk.Style()
+        style.configure("Run.TButton", font=("Helvetica", 14, "bold"), padding=10)
+        
+        self.run_button = ttk.Button(run_frame, text="▶️ モザイク処理を実行", command=self.start_processing, style="Run.TButton")
+        self.run_button.pack(fill=tk.X, ipady=5)
 
         # Status Bar
         status_bar = tk.Label(self.root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
-        # Progress bar (Indeterminate)
-        self.progress = ttk.Progressbar(self.root, mode='indeterminate')
+        # Progress bar (Determinate)
+        self.progress = ttk.Progressbar(self.root, mode='determinate', maximum=100)
 
 
     def browse_input(self):
@@ -112,11 +123,32 @@ class MosaicAppGUI:
         self.run_button.config(state=tk.DISABLED)
         self.status_var.set("Processing... Please wait.")
         self.progress.pack(fill=tk.X, padx=20, pady=5)
-        self.progress.start()
+        self.progress["value"] = 0
+
+        self.is_processing = True
+        self.latest_progress = (0, 1)
+        
+        # Start UI polling
+        self.poll_updates()
 
         # Run processing in a separate thread to keep GUI responsive
         thread = threading.Thread(target=self.run_process_thread, args=(input_path, output_path, mosaic_block))
         thread.start()
+
+    def poll_updates(self):
+        if not self.is_processing:
+            return
+
+        # Update progress bar
+        if self.latest_progress:
+            curr, total = self.latest_progress
+            if total > 0:
+                percent = (curr / total) * 100
+                self.progress["value"] = percent
+                self.status_var.set(f"Processing... {curr}/{total} frames ({percent:.1f}%)")
+            
+        # Schedule next poll
+        self.root.after(100, self.poll_updates)
 
     def run_process_thread(self, input_path, output_path, mosaic_block):
         try:
@@ -130,42 +162,36 @@ class MosaicAppGUI:
             ext = os.path.splitext(input_path.lower())[1]
             image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
-            # Redirect stdout to capture "Processed X frames..."
-            old_stdout = sys.stdout
-            class StdoutRedirector:
-                def __init__(self, main_gui):
-                    self.main_gui = main_gui
-                def write(self, text):
-                    if "Processed" in text or "Merging audio" in text:
-                        # Schedule standard update on main thread
-                        self.main_gui.root.after(0, self.main_gui.status_var.set, text.strip())
-                def flush(self):
-                    pass
-            
-            sys.stdout = StdoutRedirector(self)
+            # We removed StdoutRedirector because `root.after` called from standard 
+            # output threads on macOS causes "main thread is not in main loop" errors.
+            # Instead of capturing prints, our `poll_updates` directly reads `self.latest_progress`
+            # and updates `self.status_var` smoothly.
 
             if ext in image_exts:
                 process_image(
                     input_path, output_path, mosaic_block,
-                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device
+                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device,
+                    progress_callback=self.progress_callback
                 )
             else:
                 process_video(
                     input_path, output_path, mosaic_block,
-                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device
+                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device,
+                    progress_callback=self.progress_callback
                 )
 
-            sys.stdout = old_stdout # Restore stdout
-            
             self.root.after(0, self.processing_complete, True, f"Successfully saved to: {output_path}")
 
         except Exception as e:
-            sys.stdout = old_stdout # Restore stdout on error
             print(f"Error details: {e}")
             self.root.after(0, self.processing_complete, False, str(e))
 
+    def progress_callback(self, curr, total, frame):
+        self.latest_progress = (curr, total)
+        # We ignore 'frame' now since the preview feature was removed for simplicity.
+
     def processing_complete(self, success, message):
-        self.progress.stop()
+        self.is_processing = False
         self.progress.pack_forget()
         self.run_button.config(state=tk.NORMAL)
         
