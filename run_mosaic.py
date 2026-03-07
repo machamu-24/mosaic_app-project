@@ -112,7 +112,7 @@ def process_video(
     progress_callback=None,
 ) -> None:
     from ultralytics import YOLO
-    from moviepy.editor import VideoFileClip, AudioFileClip
+    from moviepy import VideoFileClip, AudioFileClip
     import tempfile
     import shutil
 

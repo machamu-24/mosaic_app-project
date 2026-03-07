@@ -13,6 +13,15 @@ except ImportError as e:
     print(f"Error importing run_mosaic: {e}")
     sys.exit(1)
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    return os.path.join(base_path, relative_path)
 
 class MosaicAppGUI:
     def __init__(self, root):
@@ -153,7 +162,7 @@ class MosaicAppGUI:
     def run_process_thread(self, input_path, output_path, mosaic_block):
         try:
             # Hardcoded standard parameters for simplicity as discussed
-            yolo_weights = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "yolov8m-face.pt")
+            yolo_weights = resource_path(os.path.join("models", "yolov8m-face.pt"))
             yolo_imgsz = 960
             yolo_conf = 0.25
             yolo_iou = 0.45

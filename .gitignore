@@ -10,3 +10,8 @@ models/
 *.webp
 *.tif
 *.tiff
+
+# PyInstaller
+build/
+dist/
+*.spec
