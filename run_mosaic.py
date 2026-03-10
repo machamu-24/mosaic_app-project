@@ -6,6 +6,7 @@ import sys
 # Apple Silicon (MPS) において未対応の演算（nms等）が発生した場合に自動的にCPUにフォールバックさせるための環境変数を設定。
 # これを設定しないとNotImplementedErrorでクラッシュする可能性があります。
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ.setdefault("FFMPEG_BINARY", "ffmpeg-imageio")
 
 from typing import List, Tuple
 
@@ -200,6 +201,10 @@ def process_video(
         original_clip.close()
     except Exception as e:
         print(f"Error during audio merge: {e}")
+        import traceback
+        import os as _os
+        with open(_os.path.expanduser("~/Desktop/face_mosaic_audio_error.txt"), "w") as f:
+            traceback.print_exc(file=f)
         print("Saving video without audio as fallback.")
         shutil.move(temp_video_path, output_path)
     finally:

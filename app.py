@@ -4,6 +4,13 @@ import tempfile
 import sys
 import shutil
 
+def resource_path(relative_path: str) -> str:
+    try:
+        base_path = sys._MEIPASS  # PyInstaller
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 # Add the current directory to sys.path so we can import run_mosaic
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -30,7 +37,7 @@ def main():
         yolo_iou = st.slider("IoU Threshold", 0.0, 1.0, 0.45, 0.05)
     
     # Use standard models path
-    yolo_weights = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "yolov8m-face.pt")
+    yolo_weights = resource_path(os.path.join("models", "yolov8m-face.pt"))
     device = pick_device("")
 
     # Main area
