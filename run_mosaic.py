@@ -184,15 +184,27 @@ def process_video(
         original_clip = VideoFileClip(input_path)
         if original_clip.audio is not None:
             processed_clip = VideoFileClip(temp_video_path)
-            # Set the audio of the processed video to the original audio
+            # Moviepy 2.0+ needs a writable location for its intermediate audio file
+            # Default is the current directory, which fails if running inside a read-only Mac .app bundle
+            temp_audio_fd, temp_audio_path = tempfile.mkstemp(suffix=".m4a")
+            _os.close(temp_audio_fd)
+
             final_clip = processed_clip.with_audio(original_clip.audio)
             final_clip.write_videofile(
                 output_path,
                 codec="libx264",
                 audio_codec="aac",
+                temp_audiofile=temp_audio_path,
                 logger=None, # Disable moviepy's verbose bar
-                preset="fast"
+                preset="fast",
             )
+            
+            # Clean up the intermediate audio file
+            if _os.path.exists(temp_audio_path):
+                try:
+                    _os.remove(temp_audio_path)
+                except OSError:
+                    pass
             processed_clip.close()
             final_clip.close()
         else:
