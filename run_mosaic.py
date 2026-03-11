@@ -185,7 +185,7 @@ def process_video(
         if original_clip.audio is not None:
             processed_clip = VideoFileClip(temp_video_path)
             # Set the audio of the processed video to the original audio
-            final_clip = processed_clip.set_audio(original_clip.audio)
+            final_clip = processed_clip.with_audio(original_clip.audio)
             final_clip.write_videofile(
                 output_path,
                 codec="libx264",
