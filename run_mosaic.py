@@ -184,10 +184,11 @@ def process_video(
         original_clip = VideoFileClip(input_path)
         if original_clip.audio is not None:
             processed_clip = VideoFileClip(temp_video_path)
-            # Moviepy 2.0+ needs a writable location for its intermediate audio file
-            # Default is the current directory, which fails if running inside a read-only Mac .app bundle
+            # Moviepy 2.0+ needs a writable location for its intermediate audio file.
+            # Inside a macOS .app bundle the CWD is read-only, so we must use
+            # the system temp directory explicitly.
             temp_audio_fd, temp_audio_path = tempfile.mkstemp(suffix=".m4a")
-            _os.close(temp_audio_fd)
+            os.close(temp_audio_fd)
 
             final_clip = processed_clip.with_audio(original_clip.audio)
             final_clip.write_videofile(
@@ -195,14 +196,14 @@ def process_video(
                 codec="libx264",
                 audio_codec="aac",
                 temp_audiofile=temp_audio_path,
-                logger=None, # Disable moviepy's verbose bar
+                logger=None,
                 preset="fast",
             )
-            
+
             # Clean up the intermediate audio file
-            if _os.path.exists(temp_audio_path):
+            if os.path.exists(temp_audio_path):
                 try:
-                    _os.remove(temp_audio_path)
+                    os.remove(temp_audio_path)
                 except OSError:
                     pass
             processed_clip.close()
@@ -214,9 +215,7 @@ def process_video(
     except Exception as e:
         print(f"Error during audio merge: {e}")
         import traceback
-        import os as _os
-        with open(_os.path.expanduser("~/Desktop/face_mosaic_audio_error.txt"), "w") as f:
-            traceback.print_exc(file=f)
+        traceback.print_exc()
         print("Saving video without audio as fallback.")
         shutil.move(temp_video_path, output_path)
     finally:
