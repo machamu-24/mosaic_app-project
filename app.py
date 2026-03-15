@@ -1,8 +1,21 @@
-import streamlit as st
 import os
 import tempfile
 import sys
-import shutil
+import importlib.util
+
+
+def _bootstrap_import_paths() -> None:
+    """Ensure local bundle paths are importable in both dev and PyInstaller runtime."""
+    candidates = []
+    try:
+        candidates.append(sys._MEIPASS)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    candidates.append(os.path.dirname(os.path.abspath(__file__)))
+
+    for path in candidates:
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
 
 def resource_path(relative_path: str) -> str:
     try:
@@ -11,11 +24,60 @@ def resource_path(relative_path: str) -> str:
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
-# Add the current directory to sys.path so we can import run_mosaic
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+def _load_core_modules():
+    """Import core processing module, with a file-based fallback for packaged builds."""
+    _bootstrap_import_paths()
+    try:
+        from run_mosaic import process_video, process_image, pick_device
+        return process_video, process_image, pick_device
+    except Exception as first_error:
+        run_mosaic_path = resource_path("run_mosaic.py")
+        if not os.path.exists(run_mosaic_path):
+            raise first_error
+
+        spec = importlib.util.spec_from_file_location("run_mosaic", run_mosaic_path)
+        if spec is None or spec.loader is None:
+            raise first_error
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules["run_mosaic"] = module
+        return module.process_video, module.process_image, module.pick_device
+
+
+def _run_self_test() -> int:
+    process_video, process_image, pick_device = _load_core_modules()
+    _ = (process_video, process_image, pick_device)
+
+    import ultralytics  # noqa: F401
+    import moviepy  # noqa: F401
+    import imageio  # noqa: F401
+    import imageio_ffmpeg
+
+    model_path = resource_path(os.path.join("models", "yolov8m-face.pt"))
+    if not os.path.exists(model_path):
+        raise RuntimeError(f"Model file missing: {model_path}")
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    if not ffmpeg_exe or not os.path.exists(ffmpeg_exe):
+        raise RuntimeError("imageio-ffmpeg binary is missing in the bundle.")
+
+    print("MOSAICAPP_SELF_TEST_OK")
+    return 0
+
+
+if os.environ.get("MOSAICAPP_SELF_TEST") == "1":
+    try:
+        raise SystemExit(_run_self_test())
+    except Exception as exc:
+        print(f"MOSAICAPP_SELF_TEST_FAIL: {exc}", file=sys.stderr)
+        raise
+
+import streamlit as st
+
 try:
-    from run_mosaic import process_video, process_image, pick_device
-except ImportError as e:
+    process_video, process_image, pick_device = _load_core_modules()
+except Exception as e:
     st.error(f"Error importing core app modules: {e}")
     st.stop()
 

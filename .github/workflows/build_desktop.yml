@@ -47,35 +47,120 @@ jobs:
         run: |
           streamlit-desktop-app build app.py --name $env:APP_NAME `
             --streamlit-options --theme.base=dark `
-            --pyinstaller-options --noconfirm --onedir --add-data "models;models" --add-data "run_mosaic.py;."
+            --pyinstaller-options --noconfirm --onedir --add-data "models;models" --hidden-import run_mosaic --hidden-import ultralytics --hidden-import requests --collect-all ultralytics --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg
 
       - name: Build desktop app (macOS)
         if: runner.os == 'macOS'
         run: |
           streamlit-desktop-app build app.py --name "${APP_NAME}" \
             --streamlit-options --theme.base=dark \
-            --pyinstaller-options --noconfirm --onedir --add-data "models:models" --add-data "run_mosaic.py:."
+            --pyinstaller-options --noconfirm --onedir --windowed --add-data "models:models" --hidden-import run_mosaic --hidden-import ultralytics --hidden-import requests --collect-all ultralytics --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg
 
-      - name: Ad-hoc codesign (macOS)
+      - name: Resolve macOS package path
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          app_dir="dist/${APP_NAME}"
-          app_bin="${app_dir}/${APP_NAME}"
-          if [[ ! -f "${app_bin}" ]]; then
-            echo "Expected app binary not found: ${app_bin}"
+          if [[ -d "dist/${APP_NAME}.app" ]]; then
+            echo "MACOS_PACKAGE_PATH=dist/${APP_NAME}.app" >> "$GITHUB_ENV"
+            echo "MACOS_BINARY_PATH=dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" >> "$GITHUB_ENV"
+            echo "MACOS_IS_APP_BUNDLE=1" >> "$GITHUB_ENV"
+          elif [[ -x "dist/${APP_NAME}/${APP_NAME}" ]]; then
+            echo "MACOS_PACKAGE_PATH=dist/${APP_NAME}" >> "$GITHUB_ENV"
+            echo "MACOS_BINARY_PATH=dist/${APP_NAME}/${APP_NAME}" >> "$GITHUB_ENV"
+            echo "MACOS_IS_APP_BUNDLE=0" >> "$GITHUB_ENV"
+          else
+            echo "Expected app output not found."
             ls -R dist || true
             exit 1
           fi
 
-          # Re-sign bundled binaries to avoid macOS library-load policy errors.
-          xattr -cr "${app_dir}" || true
+      - name: Developer ID sign and notarize (macOS)
+        if: runner.os == 'macOS' && secrets.MACOS_CERTIFICATE_P12_BASE64 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_CODESIGN_IDENTITY != '' && secrets.MACOS_NOTARY_APPLE_ID != '' && secrets.MACOS_NOTARY_TEAM_ID != '' && secrets.MACOS_NOTARY_PASSWORD != ''
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: |
+          if [[ "${MACOS_IS_APP_BUNDLE:-0}" != "1" ]]; then
+            echo "Notarization skipped: build output is not an .app bundle."
+            exit 0
+          fi
+
+          echo "Importing Developer ID certificate..."
+          echo "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > macos_cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import macos_cert.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+          xattr -cr "${MACOS_PACKAGE_PATH}" || true
+          while IFS= read -r -d '' file; do
+            codesign --force --timestamp --options runtime --sign "$MACOS_CODESIGN_IDENTITY" "${file}"
+          done < <(find "${MACOS_PACKAGE_PATH}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
+
+          codesign --force --deep --timestamp --options runtime --sign "$MACOS_CODESIGN_IDENTITY" "${MACOS_PACKAGE_PATH}"
+          codesign --verify --deep --strict --verbose=2 "${MACOS_PACKAGE_PATH}"
+          spctl --assess --type execute --verbose "${MACOS_PACKAGE_PATH}" || true
+
+          echo "Submitting for notarization..."
+          notary_zip="${APP_NAME}-macos-notary.zip"
+          ditto -c -k --keepParent "${MACOS_PACKAGE_PATH}" "${notary_zip}"
+          xcrun notarytool submit "${notary_zip}" \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" \
+            --password "$MACOS_NOTARY_PASSWORD" \
+            --wait
+          xcrun stapler staple "${MACOS_PACKAGE_PATH}"
+          echo "MACOS_NOTARIZED=1" >> "$GITHUB_ENV"
+
+      - name: Ad-hoc codesign (macOS fallback)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ "${MACOS_NOTARIZED:-0}" == "1" ]]; then
+            echo "Skipping fallback codesign: Developer ID notarization already succeeded."
+            exit 0
+          fi
+
+          echo "Using ad-hoc codesign fallback (Developer ID/notarization not applied)."
+          xattr -cr "${MACOS_PACKAGE_PATH}" || true
           while IFS= read -r -d '' file; do
             codesign --force --sign - "${file}"
-          done < <(find "${app_dir}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
+          done < <(find "${MACOS_PACKAGE_PATH}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
 
-          codesign --force --deep --sign - "${app_bin}"
-          codesign --verify --deep --strict --verbose=2 "${app_bin}"
+          if [[ "${MACOS_IS_APP_BUNDLE}" == "1" ]]; then
+            codesign --force --deep --sign - "${MACOS_PACKAGE_PATH}"
+            codesign --verify --deep --strict --verbose=2 "${MACOS_PACKAGE_PATH}"
+          else
+            codesign --force --deep --sign - "${MACOS_BINARY_PATH}"
+            codesign --verify --deep --strict --verbose=2 "${MACOS_BINARY_PATH}"
+          fi
+
+      - name: Smoke test packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MOSAICAPP_SELF_TEST = "1"
+          if (Test-Path "dist/$env:APP_NAME/$env:APP_NAME.exe") {
+            & "dist/$env:APP_NAME/$env:APP_NAME.exe"
+          } elseif (Test-Path "dist/$env:APP_NAME.exe") {
+            & "dist/$env:APP_NAME.exe"
+          } else {
+            Write-Host "dist content:"
+            Get-ChildItem -Recurse dist | Format-Table -AutoSize
+            throw "Packaged app binary not found."
+          }
+
+      - name: Smoke test packaged app (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          MOSAICAPP_SELF_TEST=1 "${MACOS_BINARY_PATH}"
 
       - name: Set archive name
         shell: bash
@@ -101,15 +186,7 @@ jobs:
       - name: Make zip (macOS)
         if: runner.os == 'macOS'
         run: |
-          if [[ -d "dist/${APP_NAME}.app" ]]; then
-            ditto -c -k --sequesterRsrc --keepParent "dist/${APP_NAME}.app" "${ARCHIVE_NAME}"
-          elif [[ -d "dist/${APP_NAME}" ]]; then
-            ditto -c -k --sequesterRsrc --keepParent "dist/${APP_NAME}" "${ARCHIVE_NAME}"
-          else
-            echo "dist content:"
-            ls -R dist || true
-            exit 1
-          fi
+          ditto -c -k --sequesterRsrc --keepParent "${MACOS_PACKAGE_PATH}" "${ARCHIVE_NAME}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

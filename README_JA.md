@@ -101,3 +101,29 @@ ZIPファイル名の例:
 ### 3-3. 配布方法
 
 GitHub の **Releases** 画面を開き、対象バージョンの ZIP をそのまま配布してください。
+
+### 3-4. macOS で初回起動時に警告が出る場合
+
+未Notarizeのアプリを配布する場合、macOSで初回起動時にセキュリティ警告が表示されることがあります。  
+`ゴミ箱に入れる` は押さず、`完了` で閉じてから以下を実行してください。
+
+```bash
+APP="/展開先/MosaicApp"
+xattr -dr com.apple.quarantine "$APP"
+"$APP/MosaicApp"
+```
+
+`Python.framework` を削除・ゴミ箱移動した場合は復旧できないため、ZIPを再展開してください。
+
+### 3-5. 非エンジニア向けに「警告なし配布」するには (推奨)
+
+GitHub Secrets に以下を設定すると、Actions が macOS 版を **Developer ID署名 + Notarization** し、利用者はターミナル操作なしで起動しやすくなります。
+
+- `MACOS_CERTIFICATE_P12_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `MACOS_CODESIGN_IDENTITY` (例: `Developer ID Application: ...`)
+- `MACOS_NOTARY_APPLE_ID`
+- `MACOS_NOTARY_TEAM_ID`
+- `MACOS_NOTARY_PASSWORD` (app-specific password)
+
+これらが未設定の場合は、ワークフローは自動で ad-hoc 署名にフォールバックします（警告が出る可能性あり）。
