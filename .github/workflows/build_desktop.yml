@@ -75,7 +75,7 @@ jobs:
           fi
 
       - name: Developer ID sign and notarize (macOS)
-        if: runner.os == 'macOS' && secrets.MACOS_CERTIFICATE_P12_BASE64 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_CODESIGN_IDENTITY != '' && secrets.MACOS_NOTARY_APPLE_ID != '' && secrets.MACOS_NOTARY_TEAM_ID != '' && secrets.MACOS_NOTARY_PASSWORD != ''
+        if: runner.os == 'macOS'
         shell: bash
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
@@ -89,6 +89,21 @@ jobs:
             echo "Notarization skipped: build output is not an .app bundle."
             exit 0
           fi
+
+          required_vars=(
+            "MACOS_CERTIFICATE_P12_BASE64"
+            "MACOS_CERTIFICATE_PASSWORD"
+            "MACOS_CODESIGN_IDENTITY"
+            "MACOS_NOTARY_APPLE_ID"
+            "MACOS_NOTARY_TEAM_ID"
+            "MACOS_NOTARY_PASSWORD"
+          )
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name:-}" ]]; then
+              echo "Notarization skipped: missing GitHub secret ${var_name}."
+              exit 0
+            fi
+          done
 
           echo "Importing Developer ID certificate..."
           echo "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > macos_cert.p12
