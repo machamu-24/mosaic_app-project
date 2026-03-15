@@ -47,14 +47,35 @@ jobs:
         run: |
           streamlit-desktop-app build app.py --name $env:APP_NAME `
             --streamlit-options --theme.base=dark `
-            --pyinstaller-options --noconfirm --onedir --add-data "models;models"
+            --pyinstaller-options --noconfirm --onedir --add-data "models;models" --add-data "run_mosaic.py;."
 
       - name: Build desktop app (macOS)
         if: runner.os == 'macOS'
         run: |
           streamlit-desktop-app build app.py --name "${APP_NAME}" \
             --streamlit-options --theme.base=dark \
-            --pyinstaller-options --noconfirm --onedir --add-data "models:models"
+            --pyinstaller-options --noconfirm --onedir --add-data "models:models" --add-data "run_mosaic.py:."
+
+      - name: Ad-hoc codesign (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_dir="dist/${APP_NAME}"
+          app_bin="${app_dir}/${APP_NAME}"
+          if [[ ! -f "${app_bin}" ]]; then
+            echo "Expected app binary not found: ${app_bin}"
+            ls -R dist || true
+            exit 1
+          fi
+
+          # Re-sign bundled binaries to avoid macOS library-load policy errors.
+          xattr -cr "${app_dir}" || true
+          while IFS= read -r -d '' file; do
+            codesign --force --sign - "${file}"
+          done < <(find "${app_dir}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
+
+          codesign --force --deep --sign - "${app_bin}"
+          codesign --verify --deep --strict --verbose=2 "${app_bin}"
 
       - name: Set archive name
         shell: bash
