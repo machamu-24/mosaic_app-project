@@ -72,3 +72,32 @@ streamlit run app.py
 ブラウザ上部に表示されているURL（例: `https://xxxxxx.streamlit.app`）をコピーし、他のスタッフに共有してください。
 
 *(※無料クラウドサーバーはスペックが制限されているため、Web公開時に長時間の動画を処理しようとするとエラーが発生する可能性があります。デモ目的の場合は、数秒間の短いテスト動画を使用することをお勧めします。実業務での長時間処理は、上記「1. ローカルでの実行」をご利用ください)*
+
+---
+
+## 📦 3. GitHub ActionsでZIP配布 (Mac / Windows)
+
+このリポジトリには、タグ push をきっかけにデスクトップアプリを自動ビルドし、ZIP形式で配布できる GitHub Actions ワークフロー（`.github/workflows/build_desktop.yml`）が含まれています。
+
+### 3-1. リリース用タグを作成して push する
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+### 3-2. 自動ビルドされる内容
+
+- Windows (`windows-latest`) と macOS (`macos-latest`) を並列ビルド
+- 生成物を ZIP 化
+- GitHub Actions の Artifacts にアップロード
+- タグ実行時は GitHub Releases に ZIP を自動添付
+
+ZIPファイル名の例:
+
+- `MosaicApp-v1.0.0-windows-x64.zip`
+- `MosaicApp-v1.0.0-macos.zip`
+
+### 3-3. 配布方法
+
+GitHub の **Releases** 画面を開き、対象バージョンの ZIP をそのまま配布してください。
