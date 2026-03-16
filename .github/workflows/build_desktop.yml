@@ -49,14 +49,14 @@ jobs:
         shell: pwsh
         run: |
           streamlit-desktop-app build app.py --name $env:APP_NAME `
-            --streamlit-options --theme.base=dark `
+            --streamlit-options --theme.base=light `
             --pyinstaller-options --noconfirm --onedir --add-data "models;models" --hidden-import run_mosaic --hidden-import ultralytics --hidden-import requests --collect-all ultralytics --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg
 
       - name: Build desktop app (macOS)
         if: runner.os == 'macOS'
         run: |
           streamlit-desktop-app build app.py --name "${APP_NAME}" \
-            --streamlit-options --theme.base=dark \
+            --streamlit-options --theme.base=light \
             --pyinstaller-options --noconfirm --onedir --windowed --add-data "models:models" --hidden-import run_mosaic --hidden-import ultralytics --hidden-import requests --collect-all ultralytics --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg
 
       - name: Resolve macOS package path

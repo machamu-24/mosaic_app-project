@@ -164,17 +164,17 @@ def main():
             if result["is_image"]:
                 st.success("Image processing complete!")
                 st.image(result["preview_bytes"], caption="Masked Image", use_container_width=True)
+                st.download_button(
+                    label=result["download_label"],
+                    data=result["data_bytes"],
+                    file_name=result["file_name"],
+                    mime=result["mime"],
+                    key=f"download-{upload_sig}",
+                )
             else:
                 st.success("Video processing complete!")
                 st.video(result["preview_bytes"])
-
-            st.download_button(
-                label=result["download_label"],
-                data=result["data_bytes"],
-                file_name=result["file_name"],
-                mime=result["mime"],
-                key=f"download-{upload_sig}",
-            )
+                st.info("Use 'Save Result To Downloads' to export the processed video.")
 
             if st.button("Save Result To Downloads", key=f"save-downloads-{upload_sig}"):
                 saved_path = _save_to_downloads(result["data_bytes"], result["file_name"])
