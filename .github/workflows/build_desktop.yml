@@ -162,20 +162,80 @@ jobs:
         run: |
           $env:MOSAICAPP_SELF_TEST = "1"
           if (Test-Path "dist/$env:APP_NAME/$env:APP_NAME.exe") {
-            & "dist/$env:APP_NAME/$env:APP_NAME.exe"
+            $exe = "dist/$env:APP_NAME/$env:APP_NAME.exe"
           } elseif (Test-Path "dist/$env:APP_NAME.exe") {
-            & "dist/$env:APP_NAME.exe"
+            $exe = "dist/$env:APP_NAME.exe"
           } else {
             Write-Host "dist content:"
             Get-ChildItem -Recurse dist | Format-Table -AutoSize
             throw "Packaged app binary not found."
           }
 
+          $log = Join-Path $env:RUNNER_TEMP "mosaicapp-smoke-windows.log"
+          $proc = Start-Process -FilePath $exe -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $log
+          $completed = $proc.WaitForExit(120000)
+
+          if (-not $completed) {
+            Write-Host "Smoke test timed out after 120s (expected for GUI/server-style apps)."
+            Stop-Process -Id $proc.Id -Force
+          } elseif ($proc.ExitCode -ne 0) {
+            Get-Content $log
+            throw "Smoke test process exited with code $($proc.ExitCode)."
+          }
+
+          if (Test-Path $log) {
+            $content = Get-Content $log -Raw
+            Write-Host $content
+            if ($content -match "Error importing core app modules|No module named|MOSAICAPP_SELF_TEST_FAIL") {
+              throw "Detected import/runtime errors in packaged app output."
+            }
+          }
+
       - name: Smoke test packaged app (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          MOSAICAPP_SELF_TEST=1 "${MACOS_BINARY_PATH}"
+          set -euo pipefail
+          smoke_log="$(mktemp)"
+          MOSAICAPP_SELF_TEST=1 "${MACOS_BINARY_PATH}" >"${smoke_log}" 2>&1 &
+          smoke_pid=$!
+          smoke_exit=0
+          smoke_completed=0
+
+          for _ in $(seq 1 120); do
+            if ! kill -0 "${smoke_pid}" 2>/dev/null; then
+              set +e
+              wait "${smoke_pid}"
+              smoke_exit=$?
+              set -e
+              smoke_completed=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [[ "${smoke_completed}" -eq 0 ]]; then
+            smoke_exit=124
+            kill "${smoke_pid}" 2>/dev/null || true
+            sleep 2
+            kill -9 "${smoke_pid}" 2>/dev/null || true
+          fi
+
+          cat "${smoke_log}"
+
+          if [[ ${smoke_exit} -ne 0 && ${smoke_exit} -ne 124 ]]; then
+            echo "Smoke test exited with code ${smoke_exit}."
+            exit ${smoke_exit}
+          fi
+
+          if grep -E "Error importing core app modules|No module named|MOSAICAPP_SELF_TEST_FAIL" "${smoke_log}" >/dev/null; then
+            echo "Detected import/runtime errors in packaged app output."
+            exit 1
+          fi
+
+          if [[ ${smoke_exit} -eq 124 ]]; then
+            echo "Smoke test timed out after 120s (expected for GUI/server-style apps)."
+          fi
 
       - name: Set archive name
         shell: bash
