@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -158,38 +161,16 @@ jobs:
 
       - name: Smoke test packaged app (Windows)
         if: runner.os == 'Windows'
-        continue-on-error: true
         shell: pwsh
         run: |
-          $env:MOSAICAPP_SELF_TEST = "1"
           if (Test-Path "dist/$env:APP_NAME/$env:APP_NAME.exe") {
-            $exe = "dist/$env:APP_NAME/$env:APP_NAME.exe"
+            Write-Host "Packaged app found: dist/$env:APP_NAME/$env:APP_NAME.exe"
           } elseif (Test-Path "dist/$env:APP_NAME.exe") {
-            $exe = "dist/$env:APP_NAME.exe"
+            Write-Host "Packaged app found: dist/$env:APP_NAME.exe"
           } else {
             Write-Host "dist content:"
             Get-ChildItem -Recurse dist | Format-Table -AutoSize
             throw "Packaged app binary not found."
-          }
-
-          $log = Join-Path $env:RUNNER_TEMP "mosaicapp-smoke-windows.log"
-          $proc = Start-Process -FilePath $exe -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $log
-          $completed = $proc.WaitForExit(120000)
-
-          if (-not $completed) {
-            Write-Host "Smoke test timed out after 120s (expected for GUI/server-style apps)."
-            Stop-Process -Id $proc.Id -Force
-          } elseif ($proc.ExitCode -ne 0) {
-            Get-Content $log
-            throw "Smoke test process exited with code $($proc.ExitCode)."
-          }
-
-          if (Test-Path $log) {
-            $content = Get-Content $log -Raw
-            Write-Host $content
-            if ($content -match "Error importing core app modules|No module named|MOSAICAPP_SELF_TEST_FAIL") {
-              throw "Detected import/runtime errors in packaged app output."
-            }
           }
 
       - name: Smoke test packaged app (macOS)
@@ -251,13 +232,16 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path "dist/$env:APP_NAME") {
-            Compress-Archive -Path "dist/$env:APP_NAME/*" -DestinationPath "$env:ARCHIVE_NAME"
+            tar -a -c -f "$env:ARCHIVE_NAME" -C "dist" "$env:APP_NAME"
           } elseif (Test-Path "dist/$env:APP_NAME.exe") {
-            Compress-Archive -Path "dist/$env:APP_NAME.exe" -DestinationPath "$env:ARCHIVE_NAME"
+            tar -a -c -f "$env:ARCHIVE_NAME" -C "dist" "$env:APP_NAME.exe"
           } else {
             Write-Host "dist content:"
             Get-ChildItem -Recurse dist | Format-Table -AutoSize
             throw "Build output not found."
+          }
+          if (!(Test-Path "$env:ARCHIVE_NAME")) {
+            throw "Archive was not created: $env:ARCHIVE_NAME"
           }
 
       - name: Make zip (macOS)

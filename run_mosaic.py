@@ -113,9 +113,14 @@ def process_video(
     progress_callback=None,
 ) -> None:
     from ultralytics import YOLO
-    from moviepy import VideoFileClip, AudioFileClip
     import tempfile
     import shutil
+
+    # Support both moviepy 1.x and 2.x import styles.
+    try:
+        from moviepy import VideoFileClip
+    except Exception:
+        from moviepy.editor import VideoFileClip
 
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():

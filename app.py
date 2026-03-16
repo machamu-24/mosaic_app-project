@@ -51,6 +51,10 @@ def _run_self_test() -> int:
 
     import ultralytics  # noqa: F401
     import moviepy  # noqa: F401
+    try:
+        from moviepy import VideoFileClip  # noqa: F401
+    except Exception:
+        from moviepy.editor import VideoFileClip  # noqa: F401
     import imageio  # noqa: F401
     import imageio_ffmpeg
 
