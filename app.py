@@ -86,6 +86,27 @@ except Exception as e:
     st.stop()
 
 
+def _upload_signature(uploaded_file) -> str:
+    return f"{uploaded_file.name}:{uploaded_file.size}"
+
+
+def _save_to_downloads(data: bytes, file_name: str) -> str:
+    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads_dir, exist_ok=True)
+
+    base_name, ext = os.path.splitext(file_name)
+    candidate_path = os.path.join(downloads_dir, file_name)
+    counter = 1
+    while os.path.exists(candidate_path):
+        candidate_path = os.path.join(downloads_dir, f"{base_name}_{counter}{ext}")
+        counter += 1
+
+    with open(candidate_path, "wb") as f:
+        f.write(data)
+
+    return candidate_path
+
+
 def main():
     st.set_page_config(page_title="Mosaic App (Web)", page_icon="🕵️", layout="centered")
 
@@ -106,10 +127,20 @@ def main():
     yolo_weights = resource_path(os.path.join("models", "yolov8m-face.pt"))
     device = pick_device("")
 
+    if "processed_result" not in st.session_state:
+        st.session_state.processed_result = None
+    if "processed_upload_sig" not in st.session_state:
+        st.session_state.processed_upload_sig = None
+
     # Main area
     uploaded_file = st.file_uploader("Choose a video or image file", type=["mp4", "mov", "avi", "jpg", "jpeg", "png", "webp"])
 
     if uploaded_file is not None:
+        upload_sig = _upload_signature(uploaded_file)
+        if st.session_state.processed_upload_sig != upload_sig:
+            st.session_state.processed_upload_sig = upload_sig
+            st.session_state.processed_result = None
+
         file_ext = os.path.splitext(uploaded_file.name)[1].lower()
         is_image = file_ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"]
 
@@ -119,13 +150,41 @@ def main():
             st.video(uploaded_file, format="video/mp4")
 
         if st.button("Apply Mosaic", type="primary"):
-            process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device, file_ext)
+            try:
+                st.session_state.processed_result = process_uploaded_file(
+                    uploaded_file, is_image, mosaic_block,
+                    yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device, file_ext
+                )
+            except Exception as e:
+                st.session_state.processed_result = None
+                st.error(f"An error occurred during processing: {e}")
+
+        result = st.session_state.processed_result
+        if result is not None:
+            if result["is_image"]:
+                st.success("Image processing complete!")
+                st.image(result["preview_bytes"], caption="Masked Image", use_container_width=True)
+            else:
+                st.success("Video processing complete!")
+                st.video(result["preview_bytes"])
+
+            st.download_button(
+                label=result["download_label"],
+                data=result["data_bytes"],
+                file_name=result["file_name"],
+                mime=result["mime"],
+                key=f"download-{upload_sig}",
+            )
+
+            if st.button("Save Result To Downloads", key=f"save-downloads-{upload_sig}"):
+                saved_path = _save_to_downloads(result["data_bytes"], result["file_name"])
+                st.success(f"Saved to: {saved_path}")
 
 
 def process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device, file_ext):
     # Save uploaded file to a temporary location
     with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_in:
-        tmp_in.write(uploaded_file.read())
+        tmp_in.write(uploaded_file.getvalue())
         input_path = tmp_in.name
 
     # Determine output path
@@ -152,16 +211,17 @@ def process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, y
                 progress_callback=update_progress
             )
             progress_bar.empty() # Remove progress bar when done
-            st.success("Image processing complete!")
-            st.image(output_path, caption="Masked Image", use_container_width=True)
-            
             with open(output_path, "rb") as file:
-                st.download_button(
-                    label="Download Masked Image",
-                    data=file,
-                    file_name=f"masked_{uploaded_file.name}",
-                    mime=f"image/{file_ext[1:]}"
-                )
+                output_bytes = file.read()
+            ext = file_ext[1:] if file_ext.startswith(".") else file_ext
+            return {
+                "is_image": True,
+                "preview_bytes": output_bytes,
+                "data_bytes": output_bytes,
+                "file_name": f"masked_{uploaded_file.name}",
+                "mime": f"image/{ext}",
+                "download_label": "Download Masked Image",
+            }
 
         else:
             process_video(
@@ -170,25 +230,18 @@ def process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, y
                 progress_callback=update_progress
             )
             progress_bar.empty() # Remove progress bar when done
-            st.success("Video processing complete!")
-            
-            # Attempt to show video in browser
-            try:
-                with open(output_path, 'rb') as video_file:
-                    video_bytes = video_file.read()
-                st.video(video_bytes)
-            except Exception as e:
-                st.warning("Could not preview video in browser. Please download it.")
-            
             with open(output_path, "rb") as file:
-                st.download_button(
-                    label="Download Masked Video",
-                    data=file,
-                    file_name=f"masked_{os.path.splitext(uploaded_file.name)[0]}.mp4",
-                    mime="video/mp4"
-                )
+                output_bytes = file.read()
+            return {
+                "is_image": False,
+                "preview_bytes": output_bytes,
+                "data_bytes": output_bytes,
+                "file_name": f"masked_{os.path.splitext(uploaded_file.name)[0]}.mp4",
+                "mime": "video/mp4",
+                "download_label": "Download Masked Video",
+            }
     except Exception as e:
-        st.error(f"An error occurred during processing: {e}")
+        raise RuntimeError(str(e)) from e
     finally:
         # Cleanup temp files
         if os.path.exists(input_path):
