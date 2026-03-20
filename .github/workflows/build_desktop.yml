@@ -77,8 +77,7 @@ jobs:
               --collect-all imageio_ffmpeg `
               --collect-all pywebview `
               --collect-all streamlit_desktop_app `
-              --copy-metadata streamlit `
-              --copy-metadata importlib-metadata
+              --copy-metadata streamlit
 
       - name: Build desktop app (macOS)
         if: runner.os == 'macOS'
