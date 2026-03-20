@@ -6,7 +6,6 @@ import sys
 # Apple Silicon (MPS) において未対応の演算（nms等）が発生した場合に自動的にCPUにフォールバックさせるための環境変数を設定。
 # これを設定しないとNotImplementedErrorでクラッシュする可能性があります。
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-os.environ.setdefault("FFMPEG_BINARY", "ffmpeg-imageio")
 
 from typing import List, Tuple
 
@@ -113,14 +112,9 @@ def process_video(
     progress_callback=None,
 ) -> None:
     from ultralytics import YOLO
+    from moviepy import VideoFileClip, AudioFileClip
     import tempfile
     import shutil
-
-    # Support both moviepy 1.x and 2.x import styles.
-    try:
-        from moviepy import VideoFileClip
-    except Exception:
-        from moviepy.editor import VideoFileClip
 
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
@@ -185,51 +179,60 @@ def process_video(
 
     # Audio merging with moviepy
     print("Merging audio...", flush=True)
+    original_clip = None
+    processed_clip = None
+    final_clip = None
     try:
         original_clip = VideoFileClip(input_path)
         if original_clip.audio is not None:
             processed_clip = VideoFileClip(temp_video_path)
-            # Moviepy 2.0+ needs a writable location for its intermediate audio file.
-            # Inside a macOS .app bundle the CWD is read-only, so we must use
-            # the system temp directory explicitly.
-            temp_audio_fd, temp_audio_path = tempfile.mkstemp(suffix=".m4a")
-            os.close(temp_audio_fd)
-
+            # moviepy v2.x uses with_audio(), v1.x used set_audio()
             final_clip = processed_clip.with_audio(original_clip.audio)
             final_clip.write_videofile(
                 output_path,
                 codec="libx264",
                 audio_codec="aac",
-                temp_audiofile=temp_audio_path,
-                logger=None,
-                preset="fast",
+                logger=None, # Disable moviepy's verbose bar
+                preset="fast"
             )
-
-            # Clean up the intermediate audio file
-            if os.path.exists(temp_audio_path):
-                try:
-                    os.remove(temp_audio_path)
-                except OSError:
-                    pass
-            processed_clip.close()
-            final_clip.close()
         else:
-            # If no audio, just move the temp file to the output path
-            shutil.move(temp_video_path, output_path)
-        original_clip.close()
+            # If no audio, just copy the temp file to the output path
+            shutil.copyfile(temp_video_path, output_path)
     except Exception as e:
-        print(f"Error during audio merge: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error during audio merge/copy: {e}")
         print("Saving video without audio as fallback.")
-        shutil.move(temp_video_path, output_path)
+        # Close all clips before moving the file (Windows file lock)
+        for clip in [final_clip, processed_clip, original_clip]:
+            if clip is not None:
+                try:
+                    clip.close()
+                except Exception:
+                    pass
+        # Fallback copy
+        import time
+        time.sleep(1) # Give Windows a moment to release handles
+        try:
+            shutil.copyfile(temp_video_path, output_path)
+        except OSError as copy_err:
+            print(f"Fallback copy failed: {copy_err}")
     finally:
-        # Ensure temp file is cleaned up
+        # Close all clips first to release file handles (important on Windows)
+        for clip in [final_clip, processed_clip, original_clip]:
+            if clip is not None:
+                try:
+                    clip.close()
+                except Exception:
+                    pass
+        
+        # Now safe to clean up temp file, with retries for Windows locks
         if os.path.exists(temp_video_path):
-            try:
-                os.remove(temp_video_path)
-            except OSError:
-                pass
+            import time
+            for _ in range(5):
+                try:
+                    os.remove(temp_video_path)
+                    break
+                except OSError:
+                    time.sleep(0.5)
 
 
 
