@@ -112,7 +112,10 @@ def process_video(
     progress_callback=None,
 ) -> None:
     from ultralytics import YOLO
-    from moviepy import VideoFileClip, AudioFileClip
+    try:
+        from moviepy import VideoFileClip, AudioFileClip
+    except ImportError:
+        from moviepy.editor import VideoFileClip, AudioFileClip
     import tempfile
     import shutil
 
@@ -186,8 +189,11 @@ def process_video(
         original_clip = VideoFileClip(input_path)
         if original_clip.audio is not None:
             processed_clip = VideoFileClip(temp_video_path)
-            # moviepy v2.x uses with_audio(), v1.x used set_audio()
-            final_clip = processed_clip.with_audio(original_clip.audio)
+            # moviepy v2.x uses with_audio(), v1.x uses set_audio()
+            if hasattr(processed_clip, 'with_audio'):
+                final_clip = processed_clip.with_audio(original_clip.audio)
+            else:
+                final_clip = processed_clip.set_audio(original_clip.audio)
             final_clip.write_videofile(
                 output_path,
                 codec="libx264",
