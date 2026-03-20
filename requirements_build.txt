@@ -1,3 +1,5 @@
 -r requirements.txt
+pyinstaller
 streamlit-desktop-app
+pywebview
 imageio-ffmpeg
