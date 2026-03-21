@@ -6,8 +6,8 @@
 ## Project Info
 
 - **プロジェクト名:** Mosaic App
-- **バージョン:** `v1.0.12`
-- **作成者:** まさむ（理学療法士/エンジニア）
+- **バージョン:** `v1.0.13`
+- **作成者:** まさむ（理学療法士エンジニア）
 
 動画や画像に写った顔を自動検出し、モザイク処理を適用するアプリケーションです。  
 医療・研究・記録用途など、プライバシー保護を目的とした匿名化処理を想定しています。
@@ -35,6 +35,15 @@
 - Apple Silicon では `MPS` を優先利用し、必要に応じて CPU へフォールバック
 - Windows / macOS 向けデスクトップ配布 ZIP の自動生成
 
+## 対応ファイル
+
+入力ファイルは拡張子から画像・動画を判定します。
+
+- 動画: `mp4`, `mov`, `avi`
+- 画像: `jpg`, `jpeg`, `png`, `webp`, `bmp`, `tif`, `tiff`
+
+動画はフレーム単位で処理し、可能な場合は元動画の音声を保持します。
+
 ## ユースケース
 
 - 医療・介護現場での歩行動画や記録映像の匿名化
@@ -57,7 +66,50 @@
 - `streamlit-desktop-app`
 - `imageio-ffmpeg`
 
-## クイックスタート
+
+## アプリケーションのダウンロードと起動方法
+
+GitHubの操作に慣れていない方向けに、ダウンロードから初回起動までの流れを簡単にまとめます。
+
+1. [GitHub Releases](https://github.com/machamu-24/mosaic_app-project/releases) を開きます
+2. 一番上に表示されている最新版のリリースをクリックします
+3. 現時点では、最新版は `v1.0.13` です
+4. `Assets` の中に、macOS 版と Windows 版の ZIP ファイルがあります
+5. macOS を使っている場合は `MosaicApp-v1.0.13-macos.zip`、Windows を使っている場合は `MosaicApp-v1.0.13-windows-x64.zip` をクリックしてください
+6. `Source code (zip)` や `Source code (tar.gz)` は通常の利用では不要なので、触らなくて大丈夫です
+7. ダウンロードが終わったら、`Downloads` フォルダ内にある ZIP ファイルを展開してください
+8. 展開して `MosaicApp` フォルダまで開けたら、そのフォルダを `Downloads` の外へ移動してください
+9. `Downloads` フォルダ内のままだと、うまく起動しないケースがあります
+10. 移動後に `MosaicApp` を開いて起動してください
+
+初回起動時は、macOS / Windows ともにセキュリティ確認が表示される場合があります。  
+その場合は内容を確認し、起動を許可してください。通常、この確認は初回のみです。
+
+macOS では「ゴミ箱に入れますか」といった警告が表示される場合がありますが、**絶対にゴミ箱には入れないでください。**  
+
+macOSの場合、一度閉じた後、「システム設定」の「プライバシーとセキュリティ」の下の方に、このアプリケーションを許可しますか？みたいなポップアップ画面があるので、「このまま開く」を押していただくとアプリケーションが起動すると思います。
+
+Windowsの場合は、セキュリティ画面が立ち上がると、小さい文字で詳細というところをクリックすると、開くというボタンが表示されると思いますので、そのまま開くをクリックするとアプリケーションが起動すると思います。
+
+- **macOS 版では、アプリを × ボタンで閉じた際に終了まで `1〜2分` ほどかかることがあります**
+**上記の終了待ち時間は、特に Streamlit ベースの macOS アプリで発生することがあります。**  
+終了に時間がかかる場合でも、直ちに不具合とは限りません。利用者向けには「終了に時間がかかることがありますが、バグではありません」と案内しておくことを推奨します。
+
+
+## 処理の流れ
+
+処理の流れは以下の通りです。
+
+1. 入力ファイルを読み込む
+2. `YOLOv8-Face` で顔のバウンディングボックスを検出する
+3. 検出領域を低解像度に縮小し、再拡大してモザイク化する
+4. 画像または動画として保存する
+
+小さな顔の検出率を上げるため、デフォルトの推論サイズは `imgsz=960` に設定しています。  
+用途に応じて、速度優先なら小さめ、検出重視なら大きめに調整できます。
+
+
+## クイックスタート(エンジニア向け)
 
 ### 前提条件
 
@@ -133,63 +185,6 @@ python run_mosaic.py \
 | `--yolo-iou` | IoU 閾値 | `0.45` |
 | `--device` | `cpu` / `mps` / GPU 指定 | 自動選択 |
 
-## 対応ファイル
-
-入力ファイルは拡張子から画像・動画を判定します。
-
-- 動画: `mp4`, `mov`, `avi`
-- 画像: `jpg`, `jpeg`, `png`, `webp`, `bmp`, `tif`, `tiff`
-
-動画はフレーム単位で処理し、可能な場合は元動画の音声を保持します。
-
-## ビルド済みアプリのダウンロード
-
-**ソースコードを実行せずに使いたい場合は、ビルド済み ZIP を利用できます。**
-
-- 正式な配布物: [GitHub Releases](https://github.com/machamu-24/mosaic_app-project/releases)
-- 手動実行のビルド成果物: [GitHub Actions / build-desktop](https://github.com/machamu-24/mosaic_app-project/actions/workflows/build_desktop.yml)
-
-`Releases` には、タグ付きリリース時に生成された ZIP が添付されます。  
-開発中の確認用に一時的な ZIP が必要な場合は、Actions の実行結果から `Artifacts` をダウンロードしてください。
-
-想定される ZIP 名の例:
-
-- `MosaicApp-v1.0.0-windows-x64.zip`
-- `MosaicApp-v1.0.0-macos.zip`
-
-## Build And Release With GitHub Actions
-
-このリポジトリには、Windows / macOS 向けデスクトップアプリを自動ビルドして ZIP 化する workflow が含まれています。
-
-対象 workflow:
-
-- [`.github/workflows/build_desktop.yml`](.github/workflows/build_desktop.yml)
-
-### Manual Build
-
-GitHub の Actions タブから `build-desktop` を手動実行できます。
-
-手順:
-
-1. [Actions / build-desktop](https://github.com/machamu-24/mosaic_app-project/actions/workflows/build_desktop.yml) を開く
-2. `Run workflow` を実行する
-3. 完了後、実行ページの `Artifacts` から ZIP を取得する
-
-### Release Build
-
-タグを push すると、Windows / macOS の ZIP が自動生成され、GitHub Releases に添付されます。
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-workflow の主な動作:
-
-- `windows-latest` と `macos-latest` を並列ビルド
-- 生成物を ZIP 化
-- Artifacts にアップロード
-- タグ push 時は GitHub Release を自動作成し、ZIP を添付
 
 ### macOS Distribution Notes
 
@@ -197,37 +192,10 @@ macOS では、署名や Notarization の有無によって初回起動時の挙
 
 - GitHub Secrets が設定されている場合: `Developer ID` 署名と `Notarization` を実施
 - 未設定の場合: `ad-hoc codesign` にフォールバック
-- **macOS 版では、アプリを×(×)ボタンで閉じた際に終了まで `1〜2分` ほどかかることがあります**
 
 後者では、利用者の環境でセキュリティ警告が表示される場合があります。  
 非エンジニア向けに配布する場合は、workflow に必要な Secrets を設定した運用を推奨します。
 
-**上記の終了待ち時間は、特に Streamlit ベースの macOS アプリで発生することがあります。**  
-終了に時間がかかる場合でも、直ちに不具合とは限りません。利用者向けには「終了に時間がかかることがありますが、バグではありません」と案内しておくことを推奨します。
-
-## Streamlit Community Cloud
-
-簡易的な Web 共有やデモ用として `Streamlit Community Cloud` に公開することもできます。
-
-基本的な公開条件:
-
-- GitHub リポジトリに最新コードが push されていること
-- `main file path` に `app.py` を指定すること
-
-ただし、無料クラウド環境では処理時間やリソースに制約があります。  
-長時間動画や高負荷な本番用途では、ローカル実行またはデスクトップ配布版の利用を推奨します。
-
-## 処理の流れ
-
-処理の流れは以下の通りです。
-
-1. 入力ファイルを読み込む
-2. `YOLOv8-Face` で顔のバウンディングボックスを検出する
-3. 検出領域を低解像度に縮小し、再拡大してモザイク化する
-4. 画像または動画として保存する
-
-小さな顔の検出率を上げるため、デフォルトの推論サイズは `imgsz=960` に設定しています。  
-用途に応じて、速度優先なら小さめ、検出重視なら大きめに調整できます。
 
 ## プロジェクト構成
 
