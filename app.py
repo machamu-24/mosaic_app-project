@@ -82,7 +82,7 @@ import streamlit as st
 try:
     process_video, process_image, pick_device = _load_core_modules()
 except Exception as e:
-    st.error(f"Error importing core app modules: {e}")
+    st.error(f"コアモジュールのインポート時にエラーが発生しました: {e}")
     st.stop()
 
 
@@ -108,20 +108,20 @@ def _save_to_downloads(data: bytes, file_name: str) -> str:
 
 
 def main():
-    st.set_page_config(page_title="Mosaic App (Web)", page_icon="🕵️", layout="centered")
+    st.set_page_config(page_title="顔モザイクアプリ", page_icon="🕵️", layout="centered")
 
-    st.title("Face Mosaic Application 🕵️")
-    st.markdown("Upload a video or image to automatically detect faces and apply a mosaic effect.")
+    st.title("顔モザイクアプリ 🕵️")
+    st.markdown("動画または画像をアップロードすると、自動的に顔を検出してモザイク処理を適用します。")
 
     # Sidebar settings
-    st.sidebar.header("Settings")
-    mosaic_block = st.sidebar.slider("Mosaic Strength", min_value=5, max_value=100, value=20, help="Larger means stronger mosaic.")
+    st.sidebar.header("設定")
+    mosaic_block = st.sidebar.slider("モザイクの強さ", min_value=5, max_value=100, value=20, help="数値が大きいほどモザイクが強くなります。")
     
     # Advanced settings hidden by default since it's for non-engineers usually, but good for demo
-    with st.sidebar.expander("Advanced Settings"):
-        yolo_imgsz = st.number_input("Inference Size (imgsz)", min_value=320, max_value=1280, value=960, step=32)
-        yolo_conf = st.slider("Confidence Threshold", 0.0, 1.0, 0.25, 0.05)
-        yolo_iou = st.slider("IoU Threshold", 0.0, 1.0, 0.45, 0.05)
+    with st.sidebar.expander("詳細設定"):
+        yolo_imgsz = st.number_input("推論サイズ (imgsz)", min_value=320, max_value=1280, value=960, step=32)
+        yolo_conf = st.slider("信頼度しきい値", 0.0, 1.0, 0.25, 0.05)
+        yolo_iou = st.slider("IoUしきい値", 0.0, 1.0, 0.45, 0.05)
     
     # Use standard models path
     yolo_weights = resource_path(os.path.join("models", "yolov8m-face.pt"))
@@ -133,7 +133,7 @@ def main():
         st.session_state.processed_upload_sig = None
 
     # Main area
-    uploaded_file = st.file_uploader("Choose a video or image file", type=["mp4", "mov", "avi", "jpg", "jpeg", "png", "webp"])
+    uploaded_file = st.file_uploader("動画または画像ファイルを選択してください", type=["mp4", "mov", "avi", "jpg", "jpeg", "png", "webp"])
 
     if uploaded_file is not None:
         upload_sig = _upload_signature(uploaded_file)
@@ -145,11 +145,11 @@ def main():
         is_image = file_ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"]
 
         if is_image:
-            st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+            st.image(uploaded_file, caption="アップロードされた画像", use_container_width=True)
         else:
             st.video(uploaded_file, format="video/mp4")
 
-        if st.button("Apply Mosaic", type="primary"):
+        if st.button("モザイクを適用する", type="primary"):
             try:
                 st.session_state.processed_result = process_uploaded_file(
                     uploaded_file, is_image, mosaic_block,
@@ -157,28 +157,21 @@ def main():
                 )
             except Exception as e:
                 st.session_state.processed_result = None
-                st.error(f"An error occurred during processing: {e}")
+                st.error(f"処理中にエラーが発生しました: {e}")
 
         result = st.session_state.processed_result
         if result is not None:
             if result["is_image"]:
-                st.success("Image processing complete!")
-                st.image(result["preview_bytes"], caption="Masked Image", use_container_width=True)
-                st.download_button(
-                    label=result["download_label"],
-                    data=result["data_bytes"],
-                    file_name=result["file_name"],
-                    mime=result["mime"],
-                    key=f"download-{upload_sig}",
-                )
+                st.success("画像の処理が完了しました！")
+                st.image(result["preview_bytes"], caption="モザイク処理された画像", use_container_width=True)
             else:
-                st.success("Video processing complete!")
+                st.success("動画の処理が完了しました！")
                 st.video(result["preview_bytes"])
-                st.info("Use 'Save Result To Downloads' to export the processed video.")
+                st.info("下のボタンを押すと「ダウンロード」フォルダに保存されます。")
 
-            if st.button("Save Result To Downloads", key=f"save-downloads-{upload_sig}"):
+            if st.button("結果を「ダウンロード」フォルダに保存", key=f"save-downloads-{upload_sig}"):
                 saved_path = _save_to_downloads(result["data_bytes"], result["file_name"])
-                st.success(f"Saved to: {saved_path}")
+                st.success(f"保存しました: {saved_path}")
 
 
 def process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, yolo_imgsz, yolo_conf, yolo_iou, device, file_ext):
@@ -193,15 +186,15 @@ def process_uploaded_file(uploaded_file, is_image, mosaic_block, yolo_weights, y
     os.close(fd)
 
     try:
-        st.write("Processing... Please wait (this may take a while for long videos).")
-        progress_bar = st.progress(0, text="Initializing processing...")
+        st.write("処理中... しばらくお待ちください（長時間の動画では時間がかかる場合があります）。")
+        progress_bar = st.progress(0, text="処理を初期化中...")
 
         def update_progress(curr, total, frame):
             # Streamlit progress bar accepts values 0-100 (or float 0.0-1.0)
             if total > 0:
                 percent_float = min(1.0, max(0.0, curr / total))
                 percent_int = int(percent_float * 100)
-                text_msg = f"Processing... {curr}/{total} frames ({percent_int}%)"
+                text_msg = f"処理中... {curr}/{total} フレーム ({percent_int}%)"
                 progress_bar.progress(percent_float, text=text_msg)
 
         if is_image:
